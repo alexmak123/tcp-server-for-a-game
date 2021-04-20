@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <iostream>
 
 #define PORT "3490" // порт, к которому будет подключаться клиент
 
@@ -40,7 +41,8 @@ private :
 };
 
 Client::Client() {
-
+    sockfd = -1;
+    rights = 0;
 }
 
 Client::~Client() {
@@ -52,7 +54,7 @@ void Client :: connect_Client() {
     struct addrinfo hints, *servinfo, *p; // нужно для функции getaddrinfo(), которая позволит заполнить инфу по клиенту в servinfo
     int rv;
 
-    // заполняем hints (грубо говоря начальные данные)
+    // заполняем hints (начальные данные)
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC; // можно любой тип : Ipv4 или Ipv6
 	hints.ai_socktype = SOCK_STREAM; // сокет - потоковый
@@ -88,50 +90,54 @@ void Client :: connect_Client() {
 
 	// записываем сетевой адрес к чему подключаемся в массив символов char s[max_size]
 	inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr), s, sizeof s);
-	printf("client: connecting to %s\n", s);
+	printf("client: connected to %s\n", s);
 
 	freeaddrinfo(servinfo);
 }
 
 void Client::read_and_write_Client() {
-    // мы уже подключены к серверу, поэтому можем считать, что он нам прислал
-    char buf[MAXDATASIZE];
+
+    if (sockfd == -1) {
+        perror("client: not initialized soket for server connection\n");
+        exit(1);
+    }
+
+    // мы уже подключены к серверу, поэтому можем считать, что он нам прислал на первом ходе
+    char buf[MAXDATASIZE] = {0};
     if (recv(sockfd, buf, MAXDATASIZE-1, 0) == -1) {
-	    perror("client recv");
+	    perror("client: recv from server");
 	    exit(1);
 	}
-	rights = 0;
-    if (buf == "you have rights to read and write\n") {
+
+	// задаем права, изначально права только на чтение
+    if (std::string (buf) == "New Step; you have rights to read and write") {
         rights = 1;
+        printf("Server sended:  %s\n",buf);
+    } else {
+        rights = 0;
+        printf("Server sended:  %s\n",buf);
     }
 
-    while (1) {
-        int amount_of_messages = 0;
-        if (rights == 1) {
-            while (amount_of_messages < 11) {
-                amount_of_messages++;
-                fgets(buf, MAXDATASIZE, stdin);
-                if (send(sockfd, buf, MAXDATASIZE, 0) == -1) {
-                    perror("client send");
-                }
-            }
-        } else {
-            while (amount_of_messages < 11) {
-                amount_of_messages++;
-                sleep(10);
-                if (recv(sockfd, buf, MAXDATASIZE-1, 0) == -1) {
-                    perror("client recv");
-                }
-                printf("another user sended:  %s\n",buf);
+    char buf1[MAXDATASIZE] = {0};
+    char buf2[MAXDATASIZE] = {0};
+    if (rights == 1) {
+       while (std::string (buf1) != "!finish" && std::string (buf1) != "!exit") {
+            std::cin.getline(buf1, MAXDATASIZE);
+            if (send(sockfd, buf1, MAXDATASIZE, 0) == -1) {
+                perror("client: send to client");
             }
         }
-        rights = (rights + 1) % 2;
+    } else {
+        while (std::string (buf2) != "!finish" && std::string (buf2) != "!exit") {
+            if (recv(sockfd, buf2, MAXDATASIZE, 0) == -1) {
+                perror("client: recv from client");
+            }
+            printf("server : another user sended %s\n", buf2);
+        }
     }
-
 }
 
 int main() {
-
     Client A;
     A.connect_Client();
     A.read_and_write_Client();
