@@ -12,6 +12,9 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <iostream>
+#include <queue>
+#include <thread>
+#include <mutex>
 
 #define PORT "3490" // порт, к которому будет подключаться клиент
 
@@ -35,6 +38,8 @@ public :
     ~Client();
     void connect_Client();
     void read_and_write_Client();
+    std::string recv_Client();
+    void send_Client(std::string s);
 private :
     int sockfd; // сокет для подключения
     int rights; // 0 - только для чтения, 1 - для записи и чтения
@@ -95,6 +100,25 @@ void Client :: connect_Client() {
 	freeaddrinfo(servinfo);
 }
 
+std::string Client::recv_Client() {
+    std::string out;
+    char buf_to_send[MAXDATASIZE];
+    if (recv(sockfd, buf_to_send, MAXDATASIZE, 0) == -1) {
+        perror("client: recv");
+        exit(1);
+    }
+    out = std::string (buf_to_send);
+    return out;
+}
+
+void Client::send_Client(std::string s) {
+    char buf_to_send[MAXDATASIZE];
+    strcpy(buf_to_send,s.c_str());
+    if (send(sockfd, buf_to_send, MAXDATASIZE, 0) == -1) {
+        perror("client: send");
+    }
+}
+
 void Client::read_and_write_Client() {
 
     if (sockfd == -1) {
@@ -103,36 +127,37 @@ void Client::read_and_write_Client() {
     }
 
     // мы уже подключены к серверу, поэтому можем считать, что он нам прислал на первом ходе
-    char buf[MAXDATASIZE] = {0};
-    if (recv(sockfd, buf, MAXDATASIZE-1, 0) == -1) {
-	    perror("client: recv from server");
-	    exit(1);
-	}
+    std::string buf;
+    std::string buf1;
+    std::string buf2;
+    while (buf1 != "!exit" && buf2 != "!exit") {
 
-	// задаем права, изначально права только на чтение
-    if (std::string (buf) == "New Step; you have rights to read and write") {
-        rights = 1;
-        printf("Server sended:  %s\n",buf);
-    } else {
-        rights = 0;
-        printf("Server sended:  %s\n",buf);
-    }
+        buf.clear();
+        buf1.clear();
+        buf2.clear();
 
-    char buf1[MAXDATASIZE] = {0};
-    char buf2[MAXDATASIZE] = {0};
-    if (rights == 1) {
-       while (std::string (buf1) != "!finish" && std::string (buf1) != "!exit") {
-            std::cin.getline(buf1, MAXDATASIZE);
-            if (send(sockfd, buf1, MAXDATASIZE, 0) == -1) {
-                perror("client: send to client");
-            }
+        // считываем первое сообщение от сервера
+        buf = (*this).recv_Client();
+
+        // определяем права
+        if (buf == "New Step; you have rights to read and write") {
+            rights = 1;
+            std::cout << buf << std::endl;
+        } else {
+            rights = 0;
+            std::cout << buf << std::endl;
         }
-    } else {
-        while (std::string (buf2) != "!finish" && std::string (buf2) != "!exit") {
-            if (recv(sockfd, buf2, MAXDATASIZE, 0) == -1) {
-                perror("client: recv from client");
+
+        if (rights == 1) {
+            while (buf1 != "!finish" && buf1 != "!exit") {
+                getline(std::cin, buf1);
+                (*this).send_Client(buf1);
             }
-            printf("server : another user sended %s\n", buf2);
+        } else {
+            while (buf2 != "!finish" && buf2 != "!exit") {
+                buf2 = (*this).recv_Client();
+                std::cout <<  "another user sended : " << buf2 << std::endl;
+            }
         }
     }
 }
